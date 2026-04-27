@@ -34,32 +34,30 @@ def fetch_club_memberships():
     all_rows = []
 
     top_clubs = [
-        "wd:Q8682",   # FC Barcelona
-        "wd:Q9696",   # Real Madrid
-        "wd:Q18918",  # Manchester United
-        "wd:Q44638",  # Chelsea
-        "wd:Q43310",  # Bayern Munich
-        "wd:Q40347",  # Juventus
-        "wd:Q19786",  # Liverpool
-        "wd:Q83868",  # Arsenal
-        "wd:Q30629",  # Manchester City
-        "wd:Q11571",  # AC Milan
-        "wd:Q5849",   # Inter Milan
-        "wd:Q45543",  # Paris Saint-Germain
-        "wd:Q43504",  # Borussia Dortmund
-        "wd:Q47711",  # Atletico Madrid
-        "wd:Q43944",  # Ajax
+        "wd:Q8682",    # Real Madrid ✅
+        "wd:Q43310",   # Bayern Munich ✅
+        "wd:Q18656",   # Manchester United ✅
+        "wd:Q9616",    # Chelsea ✅
+        "wd:Q1422",    # Juventus ✅
+        "wd:Q1130849", # Liverpool ✅
+        "wd:Q9617",    # Arsenal ✅
+        "wd:Q50602",   # Manchester City ✅
+        "wd:Q1543",    # AC Milan ✅
+        "wd:Q631",     # Inter Milan ✅
+        "wd:Q41420",   # Borussia Dortmund ✅
+        "wd:Q8701",    # Atlético Madrid ✅
+        "wd:Q81888",   # AFC Ajax ✅
     ]
 
     for club in top_clubs:
         query = f"""
         SELECT ?player ?playerLabel ?club ?clubLabel ?start ?end WHERE {{
-          {club} ^ps:P54 ?membership .
-          ?membership pq:P580 ?start .
-          BIND({club} AS ?club)
-          ?player p:P54 ?membership .
-          OPTIONAL {{ ?membership pq:P582 ?end }}
-          SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en" }}
+        ?player p:P54 ?membership .
+        ?membership ps:P54 {club} .
+        BIND({club} AS ?club)
+        OPTIONAL {{ ?membership pq:P580 ?start }}
+        OPTIONAL {{ ?membership pq:P582 ?end }}
+        SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en" }}
         }}
         LIMIT 300
         """
@@ -88,19 +86,26 @@ def fetch_national_teams():
 
 def fetch_player_attributes():
     print("Fetching player attributes...")
-    query = """
-    SELECT ?player ?playerLabel ?dob ?country ?countryLabel
-           ?position ?positionLabel ?birthplace ?birthplaceLabel WHERE {
-      ?player wdt:P106 wd:Q937857 .
-      OPTIONAL { ?player wdt:P569 ?dob }
-      OPTIONAL { ?player wdt:P27 ?country }
-      OPTIONAL { ?player wdt:P413 ?position }
-      OPTIONAL { ?player wdt:P19 ?birthplace }
-      SERVICE wikibase:label { bd:serviceParam wikibase:language "en" }
-    }
-    LIMIT 2000
-    """
-    return sparql_query(query)
+    all_rows = []
+    for offset in [0, 1000, 2000, 3000]:
+        query = f"""
+        SELECT ?player ?playerLabel ?dob ?country ?countryLabel ?position ?positionLabel WHERE {{
+          ?player wdt:P106 wd:Q937857 .
+          OPTIONAL {{ ?player wdt:P569 ?dob }}
+          OPTIONAL {{ ?player wdt:P27 ?country }}
+          OPTIONAL {{ ?player wdt:P413 ?position }}
+          SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en" }}
+        }}
+        LIMIT 1000
+        OFFSET {offset}
+        """
+        rows = sparql_query(query)
+        all_rows.extend(rows)
+        print(f"  offset {offset}: {len(rows)} rows")
+        time.sleep(3)
+        if len(rows) < 1000:
+            break
+    return all_rows
 
 def fetch_awards():
     print("Fetching awards...")
