@@ -88,7 +88,7 @@ export default function App() {
             <div className="empty-state">
               <div className="empty-icon">🔍</div>
               <h2>Select an entity to explore its evolution</h2>
-              <p>Search for a football player on the left to see how their data changed over time</p>
+              <p>Search for a basketball player on the left to see how their data changed over time</p>
             </div>
           ) : (
             <>

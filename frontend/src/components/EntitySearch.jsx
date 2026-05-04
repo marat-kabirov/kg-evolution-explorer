@@ -52,7 +52,7 @@ export default function EntitySearch({ apiBase, onSelect, selected }) {
         <input
           className="search-input"
           type="text"
-          placeholder="e.g. Messi, Ronaldo..."
+          placeholder="e.g. James, Bryant..."
           value={query}
           onChange={e => setQuery(e.target.value)}
           style={{ width: "100%", padding: "8px", boxSizing: "border-box" }}
