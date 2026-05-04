@@ -4,14 +4,14 @@ A Single Page Application for entity-level visualization of Knowledge Graph evol
 
 ## Overview
 
-KG Evolution Explorer allows data analysts to explore how individual entities in a knowledge graph change over time — without requiring knowledge of SPARQL or other query languages. The system visualizes a time-ordered change log derived from Wikidata's association football dataset, covering professional footballers, their club transfers, national team memberships, awards, and biographical attributes.
+KG Evolution Explorer allows data analysts to explore how individual entities in a knowledge graph change over time — without requiring knowledge of SPARQL or other query languages. The system visualizes a time-ordered change log derived from Wikidata's NBA basketball dataset, covering professional players, their club transfers, awards, and biographical attributes.
 
 ### Features
 
-- **Timeline view** — histogram of change event density over time with brush range selection and scroll-to-zoom
-- **Change log** — chronological list of all triple-level add/delete events for a selected entity, filterable by change type (Relation / Attribute / Lifecycle), with expandable legend
-- **Graph neighbourhood** — force-directed graph of the entity's 1-hop neighbourhood with color-coded add/delete nodes, drag support, tooltips, and event count badges
-- **Entity search** — debounced search across all 3,832 entities in the dataset
+- **Timeline view** — histogram of change event density over time, colour-coded by change type (Relation / Attribute / Lifecycle), with brush range selection and scroll-to-zoom
+- **Change log** — chronological list of all triple-level add/delete events for a selected entity, filterable by change type and searchable by predicate or value, with expandable legend
+- **Graph neighbourhood** — force-directed graph of the entity's 1-hop neighbourhood with colour-coded add/delete nodes, drag support, tooltips, and event count badges
+- **Entity search** — debounced search across all entities in the dataset
 
 ## Requirements
 
@@ -69,7 +69,7 @@ source venv/bin/activate
 pip install fastapi uvicorn aiosqlite pandas requests
 
 # Fetch data from Wikidata and populate the database
-# Requires internet connection (~2 minutes)
+# Requires internet connection (~30 minutes for full dataset)
 python ingest.py
 
 # Start the API server
@@ -97,30 +97,25 @@ The application will be available at `http://localhost:5173` (or `5174` if port 
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/entities?search=Messi` | List all entities, optional search filter |
+| GET | `/entities?search=LeBron` | List all entities, optional search filter |
 | GET | `/entities/{iri}/history?from_ts=&to_ts=&change_type=` | Full change log for one entity |
 | GET | `/entities/{iri}/neighbours` | 1-hop neighbourhood of an entity |
 
 ## Dataset
 
-The change log is derived from Wikidata using SPARQL queries covering association football players (wdt:P106 = wd:Q937857):
+The change log is derived from Wikidata using SPARQL queries covering 80 of the most prominent NBA basketball players across all 29 current NBA franchises. For each player, the following data is collected:
 
-- **Club memberships** — transfers between top clubs (FC Barcelona, Real Madrid, Bayern Munich, etc.) with start and end dates (object_property add/delete events)
-- **National team memberships** — international career with start and end dates (object_property add/delete events)
-- **Player attributes** — date of birth, country of citizenship, place of birth, playing position (datatype_property and object_property events)
-- **Awards** — individual prizes and trophies with award year (object_property add events)
-- **Goals and caps** — career statistics as typed literal attributes (datatype_property add events)
+- **Team memberships** — full career history of club transfers with start and end dates (object_property add/delete events)
+- **Player attributes** — date of birth, country of citizenship, place of birth, playing position, height (datatype_property and object_property events)
+- **Awards** — individual prizes and trophies with award year, e.g. NBA MVP, All-Star selections, Championships (object_property add events)
+- **Jersey numbers** — shirt number history per club with start and end dates (datatype_property add/delete events)
+- **Entity lifecycle** — player entity creation and, where applicable, deletion events (entity_lifecycle events)
 
-| Metric | Value |
-|--------|-------|
-| Total change events | ~13,000 |
-| Unique entities | ~3,832 |
-| Object property events | ~10,894 |
-| Datatype property events | ~1,541 |
-| Entity lifecycle events | ~571 |
-| Time span | 1950 — 2025 |
-
-Example entities: Lionel Messi (216 events), Cristiano Ronaldo (54 events), Neymar, Mbappé, and thousands of other professional footballers.
+Example entities with rich histories:
+- **LeBron James** — Cleveland Cavaliers → Miami Heat → Cleveland Cavaliers → Los Angeles Lakers, 4× NBA champion
+- **Kobe Bryant** — entire career with Los Angeles Lakers, 36 awards including 5 NBA championships
+- **Michael Jordan** — Chicago Bulls dynasty, 6 championships, 15 All-Star selections
+- **Dirk Nowitzki** — 21 seasons with Dallas Mavericks, NBA champion 2011
 
 ## Technology Stack
 
@@ -135,12 +130,13 @@ Example entities: Lionel Messi (216 events), Cristiano Ronaldo (54 events), Neym
 
 ## How to Use
 
-1. **Search** — type a player name in the left panel (e.g. "Messi", "Ronaldo", "Neymar")
-2. **Overview** — the Timeline shows the density of change events across the player's full history
+1. **Search** — type a player name in the left panel (e.g. "LeBron", "Kobe", "Jordan")
+2. **Overview** — the Timeline shows the density of change events across the player's full history, colour-coded by change type
 3. **Filter by time** — drag on the Timeline to select a date range; the Change Log updates instantly
 4. **Filter by type** — use the Relation / Attribute / Lifecycle buttons to focus on specific change categories
-5. **Inspect** — read the Change Log to see exactly what changed, when, and how
-6. **Navigate** — click any node in the Graph Neighbourhood to switch to that entity
+5. **Search predicates** — use the search field in the Change Log to filter by predicate name or value (e.g. "award", "team")
+6. **Inspect** — read the Change Log to see exactly what changed, when, and how
+7. **Navigate** — click any node in the Graph Neighbourhood to switch to that entity
 
 ## Visual Encoding
 
@@ -158,7 +154,7 @@ Example entities: Lionel Messi (216 events), Cristiano Ronaldo (54 events), Neym
 |----|------------|--------|
 | R1 | Temporal support — continuous timeline navigation | ✅ Brush selection + scroll zoom, median latency 18ms |
 | R2 | Entity-level granularity — individual entity change log | ✅ Entity search + detail view |
-| R3 | KG-specificity — object/datatype/lifecycle change types | ✅ Redundant color + icon encoding |
+| R3 | KG-specificity — object/datatype/lifecycle change types | ✅ Redundant colour + icon encoding |
 | R4 | Scalability — sub-second response up to 100,000 events | ✅ SQLite index on (subject_iri, timestamp), 67ms at 100k |
 | R5 | Interactivity — overview, filter, details on demand | ✅ All three Shneiderman (1996) levels without page reload |
 | R6 | Semantic clarity — no query language required | ✅ Natural language labels + expandable legend |

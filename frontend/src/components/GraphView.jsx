@@ -1,237 +1,192 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import * as d3 from "d3"
 
 export default function GraphView({ entity, neighbours, onSelectEntity, history }) {
   const svgRef = useRef(null)
   const tooltipRef = useRef(null)
+  const [showAll, setShowAll] = useState(false)
+  const MAX_NEIGHBOURS = 15 // Увеличим для информативности
 
   useEffect(() => {
-    if (!entity || !neighbours.length) return
+    if (!entity) return
 
     const svg = d3.select(svgRef.current)
     svg.selectAll("*").remove()
 
     const width = svgRef.current.clientWidth || 600
-    const height = svgRef.current.clientHeight || 380
+    const height = svgRef.current.clientHeight || 400
 
-    // Считаем операцию и количество событий для каждого соседа
+    // 1. АНАЛИЗ ИСТОРИИ С ПРИОРИТЕТОМ УДАЛЕНИЯ
     const neighbourStatus = {}
     const neighbourCount = {}
+    const historyLabels = {}
+
     if (Array.isArray(history)) {
-      history.forEach(event => {
+      // Сортируем историю по времени (от старых к новым), если есть timestamp
+      const sortedHistory = [...history].sort((a, b) => 
+        new Date(a.timestamp) - new Date(b.timestamp)
+      )
+
+      sortedHistory.forEach(event => {
         if (event.change_type === "object_property" && event.object_value) {
-          neighbourStatus[event.object_value] = event.operation
-          neighbourCount[event.object_value] = (neighbourCount[event.object_value] || 0) + 1
+          const iri = event.object_value
+          
+          // СТРОГАЯ ЛОГИКА СТАТУСА:
+          // Если мы когда-либо видели 'delete' для этого IRI, 
+          // помечаем его как удаленный, даже если потом были мелкие 'add' (правки метаданных)
+          if (!neighbourStatus[iri] || event.operation === "delete") {
+            neighbourStatus[iri] = event.operation
+          }
+          
+          neighbourCount[iri] = (neighbourCount[iri] || 0) + 1
+          if (event.object_label) historyLabels[iri] = event.object_label
         }
       })
     }
 
+    // 2. ОПРЕДЕЛЕНИЕ ТИПА НОДЫ (Current vs Historical)
+    const currentIris = new Set(neighbours.map(n => n.iri))
+    
+    // Собираем всех, кто есть в истории, но отсутствует в текущих связях
+    const historicalNeighbours = Object.keys(neighbourStatus)
+      .filter(iri => !currentIris.has(iri))
+      .map(iri => ({
+        iri,
+        label: historyLabels[iri] || iri.split("/").pop(),
+        isDeleted: true // Явно помечаем как удаленную связь
+      }))
+
+    // 3. ФОРМИРОВАНИЕ СПИСКА (Hairball Control)
+    const allPotentialNodes = [...neighbours, ...historicalNeighbours]
+    
+    // Приоритет при сортировке: сначала те, у кого статус 'delete', потом по количеству правок
+    const sorted = allPotentialNodes.sort((a, b) => {
+      const aStat = neighbourStatus[a.iri] === 'delete' ? 1 : 0
+      const bStat = neighbourStatus[b.iri] === 'delete' ? 1 : 0
+      if (bStat !== aStat) return bStat - aStat
+      return (neighbourCount[b.iri] || 0) - (neighbourCount[a.iri] || 0)
+    })
+
+    const displayed = showAll ? sorted : sorted.slice(0, MAX_NEIGHBOURS)
+
     const nodes = [
-      {
-        id: entity.subject_iri,
-        label: entity.subject_label,
-        fullIri: entity.subject_iri,
-        isCenter: true,
-        count: history?.length || 0
-      },
-      ...neighbours.map(n => ({
+      { id: entity.subject_iri, label: entity.subject_label, isCenter: true, count: history?.length || 0 },
+      ...displayed.map(n => ({
         id: n.iri,
-        label: n.label || n.iri.split("/").pop(),
-        fullIri: n.iri,
+        label: n.label,
         isCenter: false,
-        operation: neighbourStatus[n.iri] || null,
+        // Если ноды нет в текущих (currentIris), она точно 'delete'
+        operation: !currentIris.has(n.iri) ? "delete" : neighbourStatus[n.iri],
         count: neighbourCount[n.iri] || 0
       }))
     ]
 
-    const links = neighbours.map(n => ({
+    const links = displayed.map(n => ({
       source: entity.subject_iri,
       target: n.iri,
-      label: neighbours.length <= 8 ? n.predicate_label : "",
-      operation: neighbourStatus[n.iri] || null
+      operation: !currentIris.has(n.iri) ? "delete" : neighbourStatus[n.iri],
+      label: displayed.length <= 6 ? (n.predicate_label || "") : ""
     }))
 
+    // 4. D3 RENDERING
     const sim = d3.forceSimulation(nodes)
-      .force("link", d3.forceLink(links).id(d => d.id).distance(110))
-      .force("charge", d3.forceManyBody().strength(-280))
+      .force("link", d3.forceLink(links).id(d => d.id).distance(130))
+      .force("charge", d3.forceManyBody().strength(-400))
       .force("center", d3.forceCenter(width / 2, height / 2))
-      .force("collision", d3.forceCollide(35))
+      .force("collision", d3.forceCollide(45))
 
-    const g = svg
-      .attr("width", width)
-      .attr("height", height)
-      .append("g")
+    const g = svg.append("g")
+    svg.call(d3.zoom().scaleExtent([0.1, 5]).on("zoom", (e) => g.attr("transform", e.transform)))
 
-    svg.call(d3.zoom()
-      .scaleExtent([0.3, 3])
-      .on("zoom", (event) => g.attr("transform", event.transform))
-    )
-
-    const edgeColor = (op) => {
-      if (op === "add") return "#27AE60"
-      if (op === "delete") return "#E74C3C"
-      return "#BDC3C7"
-    }
-
-    const nodeColor = (d) => {
-      if (d.isCenter) return "#2980B9"
+    // Цвета: Яркий красный для удаленных, спокойный зеленый для существующих
+    const getLinkColor = (op) => op === "delete" ? "#E74C3C" : (op === "add" ? "#2ECC71" : "#BDC3C7")
+    const getNodeColor = (d) => {
+      if (d.isCenter) return "#34495E"
+      if (d.operation === "delete") return "#C0392B" // Темно-красный
       if (d.operation === "add") return "#27AE60"
-      if (d.operation === "delete") return "#E74C3C"
-      return "#95A5A6"
+      return "#7F8C8D"
     }
 
-    // Tooltip div
-    const tooltip = d3.select(tooltipRef.current)
+    const link = g.selectAll("line").data(links).join("line")
+      .attr("stroke", d => getLinkColor(d.operation))
+      .attr("stroke-width", d => d.operation === "delete" ? 3 : 2)
+      .attr("stroke-dasharray", d => d.operation === "delete" ? "5 3" : "0")
+      .attr("stroke-opacity", 0.8)
 
-    // Рёбра
-    const link = g.selectAll("line")
-      .data(links)
-      .join("line")
-      .attr("stroke", d => edgeColor(d.operation))
-      .attr("stroke-width", 2)
-      .attr("stroke-opacity", 0.7)
-
-    // Подписи рёбер
-    const linkLabel = g.selectAll(".link-label")
-      .data(links)
-      .join("text")
-      .attr("class", "link-label")
-      .text(d => d.label || "")
-      .attr("font-size", 9)
-      .attr("fill", "#7F8C8D")
-      .attr("text-anchor", "middle")
-
-    // Узлы
-    const node = g.selectAll("circle")
-      .data(nodes)
-      .join("circle")
-      .attr("r", d => d.isCenter ? 16 : 10)
-      .attr("fill", d => nodeColor(d))
+    const node = g.selectAll("circle").data(nodes).join("circle")
+      .attr("r", d => d.isCenter ? 20 : 13)
+      .attr("fill", d => getNodeColor(d))
       .attr("stroke", "#fff")
       .attr("stroke-width", 2)
       .style("cursor", "pointer")
       .on("mouseover", (event, d) => {
-        tooltip
+        d3.select(tooltipRef.current)
           .style("display", "block")
-          .style("left", (event.offsetX + 12) + "px")
-          .style("top", (event.offsetY - 10) + "px")
           .html(`
-            <div class="tooltip-label">${d.label}</div>
-            <div class="tooltip-iri">${d.fullIri}</div>
-            ${d.count > 0 ? `<div class="tooltip-count">${d.count} change event${d.count !== 1 ? "s" : ""}</div>` : ""}
+            <div style="font-weight:bold">${d.label}</div>
+            <div style="color:${d.operation === 'delete' ? 'red' : 'inherit'}">
+              Status: ${d.operation === 'delete' ? 'DELETED / HISTORICAL' : 'Active'}
+            </div>
+            <div>Changes detected: ${d.count}</div>
           `)
       })
       .on("mousemove", (event) => {
-        tooltip
-          .style("left", (event.offsetX + 12) + "px")
-          .style("top", (event.offsetY - 10) + "px")
+        d3.select(tooltipRef.current)
+          .style("left", (event.offsetX + 15) + "px")
+          .style("top", (event.offsetY - 20) + "px")
       })
-      .on("mouseout", () => {
-        tooltip.style("display", "none")
-      })
-      .on("click", (event, d) => {
-        if (!d.isCenter) {
-          onSelectEntity({ subject_iri: d.id, subject_label: d.label })
-        }
-      })
+      .on("mouseout", () => d3.select(tooltipRef.current).style("display", "none"))
+      .on("click", (e, d) => !d.isCenter && onSelectEntity({ subject_iri: d.id, subject_label: d.label }))
       .call(d3.drag()
-        .on("start", (event, d) => {
-          if (!event.active) sim.alphaTarget(0.3).restart()
-          d.fx = d.x
-          d.fy = d.y
-        })
-        .on("drag", (event, d) => {
-          d.fx = event.x
-          d.fy = event.y
-        })
-        .on("end", (event, d) => {
-          if (!event.active) sim.alphaTarget(0)
-          d.fx = null
-          d.fy = null
-        })
-      )
+        .on("start", (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y })
+        .on("drag", (e, d) => { d.fx = e.x; d.fy = e.y })
+        .on("end", (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null }))
 
-    // Badge с количеством событий
-    const badge = g.selectAll(".badge")
-      .data(nodes.filter(d => d.count > 0))
-      .join("g")
-      .attr("class", "badge")
-
-    badge.append("circle")
-      .attr("r", 8)
-      .attr("fill", "#E74C3C")
-      .attr("stroke", "#fff")
-      .attr("stroke-width", 1)
-
-    badge.append("text")
-      .text(d => d.count > 99 ? "99+" : d.count)
-      .attr("font-size", 7)
-      .attr("fill", "white")
+    const label = g.selectAll(".node-label").data(nodes).join("text")
+      .text(d => d.label?.length > 18 ? d.label.slice(0, 15) + "..." : d.label)
+      .attr("font-size", 11)
       .attr("text-anchor", "middle")
-      .attr("dy", "0.35em")
-
-    // Метки узлов
-    const label = g.selectAll(".node-label")
-      .data(nodes)
-      .join("text")
-      .attr("class", "node-label")
-      .text(d => d.label?.split(" ").slice(0, 2).join(" ") || "")
-      .attr("font-size", 10)
-      .attr("text-anchor", "middle")
-      .attr("dy", d => d.isCenter ? -22 : -15)
-      .attr("fill", "#2C3E50")
+      .attr("dy", d => d.isCenter ? -28 : -20)
       .style("pointer-events", "none")
+      .attr("fill", "#2C3E50")
 
     sim.on("tick", () => {
-      link
-        .attr("x1", d => d.source.x)
-        .attr("y1", d => d.source.y)
-        .attr("x2", d => d.target.x)
-        .attr("y2", d => d.target.y)
-      linkLabel
-        .attr("x", d => (d.source.x + d.target.x) / 2)
-        .attr("y", d => (d.source.y + d.target.y) / 2)
-      node
-        .attr("cx", d => d.x)
-        .attr("cy", d => d.y)
-      label
-        .attr("x", d => d.x)
-        .attr("y", d => d.y)
-      badge
-        .attr("transform", d => `translate(${d.x + 10}, ${d.y - 10})`)
+      link.attr("x1", d => d.source.x).attr("y1", d => d.source.y).attr("x2", d => d.target.x).attr("y2", d => d.target.y)
+      node.attr("cx", d => d.x).attr("cy", d => d.y)
+      label.attr("x", d => d.x).attr("y", d => d.y)
     })
 
     return () => sim.stop()
-  }, [entity, neighbours, history])
+  }, [entity, neighbours, history, showAll])
 
   return (
-    <div className="graph-view" style={{ position: "relative" }}>
-      <div className="panel-title">Graph Neighbourhood</div>
-
-      <div className="graph-legend">
-        <span className="legend-item">
-          <span className="legend-dot" style={{ background: "#2980B9" }}></span>Selected
-        </span>
-        <span className="legend-item">
-          <span className="legend-dot" style={{ background: "#27AE60" }}></span>Added
-        </span>
-        <span className="legend-item">
-          <span className="legend-dot" style={{ background: "#E74C3C" }}></span>Deleted
-        </span>
-        <span className="legend-item">
-          <span className="legend-dot" style={{ background: "#95A5A6" }}></span>Unchanged
-        </span>
+    <div className="graph-view" style={{ position: "relative", height: "100%", background: "#f9f9f9", borderRadius: "8px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", padding: "12px", borderBottom: "1px solid #eee" }}>
+        <span style={{ fontWeight: "bold", color: "#34495E" }}>Network Discovery & History</span>
+        <button 
+          className={`filter-btn ${showAll ? 'active' : ''}`} 
+          onClick={() => setShowAll(!showAll)}
+          style={{ fontSize: "11px", padding: "4px 10px", cursor: "pointer" }}
+        >
+          {showAll ? "Show Top Connections" : `Scan Full History (${history?.length || 0} events)`}
+        </button>
       </div>
-
-      {neighbours.length === 0 ? (
-        <div className="empty">No relations found</div>
-      ) : (
-        <>
-          <svg ref={svgRef} style={{ width: "100%", flex: 1, minHeight: 300 }} />
-          {/* Tooltip */}
-          <div ref={tooltipRef} className="graph-tooltip" style={{ display: "none" }} />
-        </>
-      )}
+      <svg ref={svgRef} style={{ width: "100%", height: "400px" }} />
+      <div 
+        ref={tooltipRef} 
+        style={{ 
+          display: "none", 
+          position: "absolute", 
+          background: "rgba(255,255,255,0.95)", 
+          padding: "8px", 
+          border: "1px solid #34495E", 
+          borderRadius: "4px", 
+          boxShadow: "0 2px 10px rgba(0,0,0,0.1)",
+          fontSize: "12px", 
+          pointerEvents: "none",
+          zIndex: 100 
+        }} 
+      />
     </div>
   )
 }

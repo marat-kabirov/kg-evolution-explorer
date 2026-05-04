@@ -1,7 +1,7 @@
 import { useState } from "react"
 
 const CHANGE_CONFIG = {
-  object_property:   { icon: "→", color: "#8E44AD", label: "Relation",   desc: "Link to another entity" },
+  object_property:   { icon: "→", color: "#8E44AD", label: "Relation",  desc: "Link to another entity" },
   datatype_property: { icon: "#", color: "#E67E22", label: "Attribute",  desc: "Literal value (number, date, string)" },
   entity_lifecycle:  { icon: "◉", color: "#2C3E50", label: "Lifecycle",  desc: "Entity created or removed" },
 }
@@ -11,23 +11,33 @@ const OP_COLOR = {
   delete: "#E74C3C",
 }
 
-export default function EntityDetail({ history, loading, entityLabel, totalCount }) {
+export default function EntityDetail({ history, loading, entityLabel, totalCount, onClearRange }) {
   const [filter, setFilter] = useState("all")
   const [showLegend, setShowLegend] = useState(false)
+  const [searchTerm, setSearchTerm] = useState("")
 
-  const filtered = filter === "all"
-    ? history
-    : history.filter(e => e.change_type === filter)
+  // Комбинированная фильтрация: по типу И по тексту
+  const filtered = history.filter(e => {
+    const matchesType = filter === "all" || e.change_type === filter;
+    const term = searchTerm.toLowerCase();
+    const matchesSearch = 
+      e.predicate_label?.toLowerCase().includes(term) ||
+      e.object_label?.toLowerCase().includes(term) ||
+      e.object_value?.toString().toLowerCase().includes(term);
+    
+    return matchesType && matchesSearch;
+  })
 
   return (
     <div className="entity-detail">
       <div className="panel-header">
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span className="panel-title">Change Log — {entityLabel}</span>
-          <span className="event-count">
-            {filtered.length}{totalCount !== history.length ? ` / ${totalCount}` : ""} events
-          </span>
-          {/* Кнопка легенды */}
+        <div className="header-top-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", marginBottom: "10px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="panel-title">Change Log — {entityLabel}</span>
+            <span className="event-count">
+              {filtered.length}{totalCount !== history.length ? ` / ${totalCount}` : ""} events
+            </span>
+          </div>
           <button
             className="legend-toggle"
             onClick={() => setShowLegend(v => !v)}
@@ -36,20 +46,32 @@ export default function EntityDetail({ history, loading, entityLabel, totalCount
             {showLegend ? "Hide legend" : "Legend ?"}
           </button>
         </div>
-        <div className="filter-buttons">
-          {["all", "object_property", "datatype_property", "entity_lifecycle"].map(f => (
-            <button
-              key={f}
-              className={`filter-btn ${filter === f ? "active" : ""}`}
-              onClick={() => setFilter(f)}
-            >
-              {f === "all" ? "All" : CHANGE_CONFIG[f]?.label}
-            </button>
-          ))}
+
+        <div className="controls-row" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          {/* Поле поиска по предикату */}
+          <input 
+            type="text"
+            className="predicate-search-input"
+            placeholder="Search by predicate or value..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={{ padding: "6px 10px", borderRadius: "4px", border: "1px solid #ccc" }}
+          />
+
+          <div className="filter-buttons">
+            {["all", "object_property", "datatype_property", "entity_lifecycle"].map(f => (
+              <button
+                key={f}
+                className={`filter-btn ${filter === f ? "active" : ""}`}
+                onClick={() => setFilter(f)}
+              >
+                {f === "all" ? "All" : CHANGE_CONFIG[f]?.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Легенда иконок */}
       {showLegend && (
         <div className="change-legend">
           <div className="change-legend-section">
@@ -66,30 +88,29 @@ export default function EntityDetail({ history, loading, entityLabel, totalCount
             <div className="change-legend-title">Operation</div>
             <div className="change-legend-item">
               <span className="change-op" style={{ color: OP_COLOR.add }}>ADD</span>
-              <span className="change-legend-desc">Triple was added to the graph</span>
+              <span className="change-legend-desc">Triple was added</span>
             </div>
             <div className="change-legend-item">
               <span className="change-op" style={{ color: OP_COLOR.delete }}>DELETE</span>
-              <span className="change-legend-desc">Triple was removed from the graph</span>
+              <span className="change-legend-desc">Triple was removed</span>
             </div>
           </div>
         </div>
       )}
 
       {loading ? (
-        <div className="loading">Loading...</div>
+        <div className="loading-container" style={{ textAlign: "center", padding: "40px" }}>
+          <div className="spinner"></div>
+          <div style={{ marginTop: "10px", color: "#7f8c8d" }}>Loading changes...</div>
+        </div>
       ) : filtered.length === 0 ? (
         <div className="empty">
           <div className="empty-icon-small">📭</div>
-          <div>No changes in selected period</div>
+          <div>No changes found</div>
           {totalCount > 0 && (
             <div className="empty-hint">
-              There are {totalCount} events outside this time range.
-              <button
-                className="clear-range-hint"
-                onClick={() => {}}
-              >
-                Clear filter
+              <button className="clear-range-hint" onClick={onClearRange}>
+                Clear time filter
               </button>
             </div>
           )}

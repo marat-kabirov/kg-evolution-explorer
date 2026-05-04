@@ -22,22 +22,44 @@ export default function EntitySearch({ apiBase, onSelect, selected }) {
         console.error(e)
       }
       setLoading(false)
-    }, 300) // debounce — ждём 300ms после последнего символа
+    }, 300)
 
     return () => clearTimeout(timer)
-  }, [query])
+  }, [query, apiBase])
+
+  const handleReset = () => {
+    setQuery("");
+    setResults([]);
+    onSelect(null); // Сбрасываем выбор в родительском компоненте
+  }
 
   return (
     <div className="entity-search">
-      <h3>Search Entity</h3>
-      <input
-        className="search-input"
-        type="text"
-        placeholder="e.g. Messi, Ronaldo..."
-        value={query}
-        onChange={e => setQuery(e.target.value)}
-      />
-      {loading && <div className="search-loading">Searching...</div>}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+        <h3 style={{ margin: 0 }}>Search Entity</h3>
+        {selected && (
+          <button 
+            className="reset-btn" 
+            onClick={handleReset}
+            style={{ fontSize: "11px", color: "#e74c3c", cursor: "pointer", background: "none", border: "none", textDecoration: "underline" }}
+          >
+            Clear Selection ✕
+          </button>
+        )}
+      </div>
+
+      <div style={{ position: "relative" }}>
+        <input
+          className="search-input"
+          type="text"
+          placeholder="e.g. Messi, Ronaldo..."
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          style={{ width: "100%", padding: "8px", boxSizing: "border-box" }}
+        />
+        {loading && <div className="search-loading-mini">Searching...</div>}
+      </div>
+
       <div className="search-results">
         {results.map(entity => (
           <div
