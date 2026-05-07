@@ -12,21 +12,25 @@ def init_db():
     conn = get_connection()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS changes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT NOT NULL,
-            subject_iri TEXT NOT NULL,
-            subject_label TEXT,
-            predicate_iri TEXT NOT NULL,
-            predicate_label TEXT,
-            object_value TEXT,
-            object_label TEXT,
-            operation TEXT NOT NULL,
-            change_type TEXT NOT NULL
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_time       TEXT,
+            time_precision   INTEGER,
+            knowledge_time   TEXT,
+            revision_id      INTEGER,
+            editor_type      TEXT,
+            subject_iri      TEXT NOT NULL,
+            subject_label    TEXT,
+            predicate_iri    TEXT NOT NULL,
+            predicate_label  TEXT,
+            object_value     TEXT,
+            object_label     TEXT,
+            operation        TEXT NOT NULL,
+            change_type      TEXT NOT NULL
         )
     """)
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_subject_ts
-        ON changes(subject_iri, timestamp)
+        ON changes(subject_iri, knowledge_time)
     """)
     conn.commit()
     conn.close()
@@ -53,18 +57,28 @@ def get_all_entities(search: str = None):
 
 def get_entity_history(subject_iri: str, from_ts: str = None, to_ts: str = None, change_type: str = None):
     conn = get_connection()
-    query = "SELECT * FROM changes WHERE subject_iri = ?"
+    query = """
+        SELECT MIN(id) as id, event_time, time_precision, knowledge_time,
+               revision_id, editor_type, subject_iri, subject_label,
+               predicate_iri, predicate_label, object_value, object_label,
+               operation, change_type
+        FROM changes
+        WHERE subject_iri = ?
+    """
     params = [subject_iri]
     if from_ts:
-        query += " AND timestamp >= ?"
+        query += " AND event_time >= ?"
         params.append(from_ts)
     if to_ts:
-        query += " AND timestamp <= ?"
+        query += " AND event_time <= ?"
         params.append(to_ts)
     if change_type:
         query += " AND change_type = ?"
         params.append(change_type)
-    query += " ORDER BY timestamp ASC"
+    query += """
+        GROUP BY event_time, predicate_iri, object_value, operation
+        ORDER BY event_time ASC
+    """
     rows = conn.execute(query, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]

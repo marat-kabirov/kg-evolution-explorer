@@ -52,7 +52,7 @@ export default function App() {
     }
 
     const filtered = allHistory.filter(event => {
-      const ts = event.timestamp?.slice(0, 10)
+      const ts = event.event_time?.slice(0, 10)
       if (!ts) return false
       if (timeRange.from && ts < timeRange.from) return false
       if (timeRange.to && ts > timeRange.to) return false
